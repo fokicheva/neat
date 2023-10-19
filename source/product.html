@@ -114,7 +114,7 @@
   	      {% endfor %}
   	    </ul>
       {% endif %}
-      <form method="post" class="product-form {% if theme.show_sold_out_product_options %}show-sold-out{% else %}hide-sold-out{% endif %}" action="/cart" accept-charset="utf8">
+      <form id="form" method="post" class="product-form {% if theme.show_sold_out_product_options %}show-sold-out{% else %}hide-sold-out{% endif %}" action="/cart" accept-charset="utf8">
         <input type="hidden" name="utf8" value='✓'>
         {% if product.has_default_option %}
           {{ product.option | hidden_option_input }}
@@ -123,8 +123,18 @@
             <div class="product_option_groups">
               <input id="option" name="cart[add][id]" type="hidden" value="0">
               {% for option_group in product.option_groups %}
-                <div class="select">
-                  <select data-unavailable-text="(Unavailable)" data-sold-text="(Sold out)" data-group-id="{{ option_group.id }}" data-group-name="{{ option_group.name | escape }}" class="product_option_group" name="option_group[{{ option_group.id }}]" title="Select {{ option_group.name | escape }}" required>
+                <!-- CUSTOM OPTION GROUP SELECT -->
+                <div class="options-row-header">Select {{option_group.name }}:</div>
+                <div class="options-row" id="{{ option_group.id }}">
+                  {% for value in option_group.values %}
+                    <div class="option-row-item" id="{{ value.id }}" onclick="onClickOption('{{ value.id }}', '{{ option_group.id }}')">
+                      {{ value.name }}
+                    </div>
+                  {% endfor %}
+                </div>
+                <!-- HIDDEN OPTION GROUP SELECT -->
+                <div class="select" hidden>
+                  <select id="{{ option_group.id }}-select" data-unavailable-text="(Unavailable)" data-sold-text="(Sold out)" data-group-id="{{ option_group.id }}" data-group-name="{{ option_group.name | escape }}" class="product_option_group" name="option_group[{{ option_group.id }}]" title="Select {{ option_group.name | escape }}">
                     <option value="" disabled="disabled" selected>Select {{ option_group.name }}</option>
                     {% for value in option_group.values %}
                       <option value="{{ value.id }}" data-name="{{ value.name | escape }}">{{ value.name }}</option>
@@ -135,8 +145,25 @@
               {% endfor %}
             </div>
           {% else %}
-            <div class="select">
-              <select class="product_option_select" id="option" name="cart[add][id]" title="Select variant" required>
+            <!-- CUSTOM OPTION SELECT -->
+            <div class="options-row" id="options-row">
+              {% for option in product.options %}
+                <div
+                  id="{{ option.id }}"
+                  {% if option.sold_out %}
+                    class="option-row-item --sold-out"
+                  {% else %}
+                    class="option-row-item"
+                    onclick="onClickOption('{{ option.id }}')"
+                  {% endif %}
+                >
+                  {{ option.name }}{% if option.sold_out %} (Sold out){% endif %}
+                </div>
+              {% endfor %}
+            </div>
+            <!-- HIDDEN OPTION SELECT -->
+            <div class="select" hidden>
+              <select class="product_option_select" id="option" name="cart[add][id]" title="Select variant">
                 <option value="" disabled="disabled" selected>Select variant</option>
                 {% for option in product.options %}
                   <option value="{{ option.id }}" data-price="{{ option.price }}"{% if option.sold_out %} disabled="disabled" disabled-type="sold-out"{% endif %}>{{ option.name }} {% if option.sold_out %} (Sold out){% endif %}</option>
@@ -150,7 +177,7 @@
         {{ store | instant_checkout_button: 'dark', '44px' }}
         {% if product.has_option_groups %}
           <div class="reset-selection-button-container">
-            <button class="button minimal-button reset-selection-button" title="Reset selection" type="reset">Reset selection</button>
+            <button class="button minimal-button reset-selection-button" title="Reset selection" type="reset" onclick="onResetSelection()">Reset selection</button>
           </div>
         {% endif %}
       </form>
@@ -207,3 +234,74 @@
     {% endfor %}
   </section>
 {% endif %}
+<script>
+  // Custom option selector logic
+  const hiddenSelect = document.getElementById("option");
+  const hiddenGroupSelects = document.getElementsByClassName("product_option_group");
+  const event = new Event('change');
+
+  const onSelectClass = (id, option) => {
+    const children = document.getElementById(id).children;
+
+    for (let child of children) {
+      if (child.id !== option) {
+        document.getElementById(child.id).classList.remove("--selected")
+      }
+    }
+    document.getElementById(option).classList.add("--selected");
+  }
+
+  const regex = new RegExp(/Sold out/, "i");
+  function updateSoldOut() {
+    for (let group of hiddenGroupSelects) {
+      const availableOptions = Array.from(group)
+        .filter(option => !option.disabled && !regex.test(option.innerText))
+        .map(option => option.value);
+      
+      const options = document.getElementById(group.id.replace("-select", ""));
+      for (let option of options.children) {
+        if (!availableOptions.includes(option.id)) {
+          option.classList.add("--sold-out");
+          option.innerText = regex.test(option.innerText) ? option.innerText : option.innerText + " (Sold out)";
+        } else {
+          option.classList.remove("--sold-out");
+          option.innerText = option.innerText.replace(" (Sold out)", "");
+        }
+      }
+    }
+  }
+  
+  function onClickOption(option, option_group) {
+    if (option_group) {
+      const hiddenGroupSelect = document.getElementById(option_group + "-select");
+      hiddenGroupSelect.value = option;
+      onSelectClass(option_group, option);
+
+      // Dispatch it for the magic javascript calculations to happen
+      hiddenGroupSelect.dispatchEvent(event);
+      updateSoldOut();
+    } else {
+      hiddenSelect.value = option;
+      onSelectClass("options-row", option);
+    }
+  }
+
+  // Reset option group selection
+  function onResetSelection() {
+    const options = document.getElementsByClassName("--selected");
+    Array.from(options).forEach(option => option.classList.remove("--selected"));
+  }
+  
+  // Logic for preventing checkout if no option selected
+  const form = document.getElementById("form");
+  
+  form.addEventListener("submit", (e) => {
+    const noOption = hiddenSelect && !hiddenSelect.value;
+    const noOptionGroup = hiddenGroupSelects && Array.from(hiddenGroupSelects).some(select => !select.value);
+
+    if (noOption || noOptionGroup) {
+      e.preventDefault();
+      alert("Please select an option!");
+    }
+  })
+</script>
